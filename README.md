@@ -117,7 +117,7 @@ The model relies on 10 core features:
 | Model | Training Accuracy | Testing Accuracy | Notes |
 | :--- | :--- | :--- | :--- |
 | **Decision Tree** | ~92.9% | ~91.0% | Primary model, tuned with `max_depth=10` |
-| **Logistic Regression** | — | — | Secondary benchmark model |
+| **Logistic Regression** | ~85% | ~82.33% | Secondary benchmark model |
 
 Comprehensive metric reports (Precision, Recall, F1) and interactive Confusion Matrices are available in the **Performance** tab of the Streamlit application.
 
