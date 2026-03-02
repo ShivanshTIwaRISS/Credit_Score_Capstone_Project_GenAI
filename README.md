@@ -48,6 +48,7 @@ Credit_Score_Capstone_Project_GenAI/
 └── notebook/
     ├── data_cleaning.ipynb                  # Data cleaning & EDA notebook
     └── model_training.ipynb                 # ML model training & evaluation notebook
+|--- credir risk report.pdf
 ```
 
 ---
