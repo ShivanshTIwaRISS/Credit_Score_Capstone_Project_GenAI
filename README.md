@@ -130,9 +130,6 @@ Comprehensive metric reports (Precision, Recall, F1) and interactive Confusion M
 | **Mid-Sem** | 25% | ML technique application, Feature Engineering, UI Usability, Evaluation Metrics. |
 | **End-Sem** | 30% | Prediction accuracy, Explainability quality, UI/UX polish, Deployment success. |
 
-> [!WARNING]
-> Localhost-only demonstrations will **not** be accepted for final submission. The application must be publicly hosted.
-
 ---
 
 ### Setup & Installation
