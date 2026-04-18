@@ -39,10 +39,11 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 # =============================================================================
 
 # Groq models used in the pipeline.
-# STRONG: for complex reasoning and tool orchestration.
-# FAST: for simple planning and auditing (saves tokens/avoids 429s).
-GROQ_MODEL_STRONG = "llama-3.3-70b-versatile"
+# STRONG: used for complex logic. (Using 3.1 70b as it often has better limits than 3.3).
+# FAST: used for planning, reflector, and fallback/economy mode.
+GROQ_MODEL_STRONG = "llama-3.1-70b-versatile"
 GROQ_MODEL_FAST   = "llama-3.1-8b-instant"
+
 
 
 # Path to the pickled Decision Tree model package.
@@ -1669,15 +1670,39 @@ def run_executor(state, groq_client, verbose=True):
     for iteration in range(MAX_EXECUTOR_ITERS):
         log_event(state, "EXECUTOR", f"iteration_{iteration + 1}")
 
+        # --- Context Pruning ---
+        # If the conversation gets too long, keep the baseline prompts (System/User)
+        # plus only the last 4 turns (approx 8 messages) to save tokens.
+        if len(messages) > 10:
+            messages = [messages[0], messages[1]] + messages[-8:]
+
         try:
-            resp = groq_client.chat.completions.create(
-                model=GROQ_MODEL_STRONG,
-                messages=messages,
-                tools=TOOLS_SCHEMA,
-                tool_choice="auto",
-                temperature=0.0,
-                max_tokens=2048,
-            )
+            try:
+                # Primary attempt with STRONG model
+                resp = groq_client.chat.completions.create(
+                    model=GROQ_MODEL_STRONG,
+                    messages=messages,
+                    tools=TOOLS_SCHEMA,
+                    tool_choice="auto",
+                    temperature=0.0,
+                    max_tokens=2048,
+                )
+            except Exception as e:
+                # Fallback attempt with FAST model if STRONG hits rate limits (429)
+                # or fails for any other reason.
+                if "429" in str(e) or "rate_limit" in str(e).lower():
+                    if verbose:
+                        print(f"  [Rate Limit] Falling back to {GROQ_MODEL_FAST}...")
+                    resp = groq_client.chat.completions.create(
+                        model=GROQ_MODEL_FAST,
+                        messages=messages,
+                        tools=TOOLS_SCHEMA,
+                        tool_choice="auto",
+                        temperature=0.0,
+                        max_tokens=2048,
+                    )
+                else:
+                    raise e
         except Exception as exc:
             state["error_log"].append({
                 "phase": "EXECUTOR",
