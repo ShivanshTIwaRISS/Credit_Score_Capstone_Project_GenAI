@@ -686,11 +686,6 @@ with st.sidebar:
 
     page = st.radio("", ["Overview", "Performance", "Predict"], label_visibility="collapsed")
 
-    st.markdown("<hr style='margin:1rem 0; border:1px solid #EEEEEE;'/>", unsafe_allow_html=True)
-    groq_api_key = st.text_input("Groq API Key (Required for Agent)", type="password")
-    if groq_api_key:
-        os.environ["GROQ_API_KEY"] = groq_api_key
-
     st.markdown(f"""
     <div class="model-badge">
         <div class="badge-label">Primary Model</div>
@@ -1122,8 +1117,13 @@ elif page == "Predict":
             </div>
             """, unsafe_allow_html=True)
         elif submitted_agent:
+            # Try to get Groq API Key from secrets if not in environment
             if not os.environ.get("GROQ_API_KEY"):
-                st.error("Please enter a Groq API Key in the sidebar or set the GROQ_API_KEY environment variable to use the Agent.")
+                if "GROQ_API_KEY" in st.secrets:
+                    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+            
+            if not os.environ.get("GROQ_API_KEY"):
+                st.error("Groq API Key not found. Please add it to Streamlit Secrets (e.g., in .streamlit/secrets.toml) or set the GROQ_API_KEY environment variable.")
             else:
                 with st.spinner("Agent Planner is formulating strategy..."):
                     applicant_features = {
@@ -1151,7 +1151,7 @@ elif page == "Predict":
                             plan_items = state.get("plan", [])
                             if plan_items:
                                 for idx, p in enumerate(plan_items, 1):
-                                    st.markdown(f"**Step {idx}:** {p.get('tool_name')} - {p.get('reason_for_tool')}")
+                                    st.markdown(f"**Step {idx}:** {p.get('action')} - {p.get('reason')}")
                             else:
                                 st.write("No plan generated.")
                         
@@ -1159,7 +1159,12 @@ elif page == "Predict":
                             logs = state.get("execution_log", [])
                             for log in logs:
                                 st.markdown(f"**Executed Tool:** `{log.get('tool')}`")
-                                st.json(log.get('result', {}))
+                                result = log.get('result', {})
+                                if isinstance(result, dict) or isinstance(result, list):
+                                    st.json(result)
+                                else:
+                                    st.info(str(result))
+                        
                         
                         with st.expander("3. Reflector Audit"):
                             reflection = state.get("reflection", {})

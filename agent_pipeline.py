@@ -494,8 +494,8 @@ def log_tool_call(state, tool_name, args, result, success):
     """
     state["execution_log"].append({
         "tool":    tool_name,
-        "args":    str(args)[:200],
-        "result":  str(result)[:300],
+        "args":    args,
+        "result":  result,
         "success": success,
         "ts":      datetime.now(timezone.utc).isoformat(),
     })
