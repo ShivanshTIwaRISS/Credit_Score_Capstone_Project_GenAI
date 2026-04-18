@@ -8,6 +8,7 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 import plotly.graph_objects as go
 import altair as alt
+import agent_pipeline
 
 st.set_page_config(
     page_title="CreditIQ — Credit Risk Intelligence",
@@ -685,6 +686,11 @@ with st.sidebar:
 
     page = st.radio("", ["Overview", "Performance", "Predict"], label_visibility="collapsed")
 
+    st.markdown("<hr style='margin:1rem 0; border:1px solid #EEEEEE;'/>", unsafe_allow_html=True)
+    groq_api_key = st.text_input("Groq API Key (Required for Agent)", type="password")
+    if groq_api_key:
+        os.environ["GROQ_API_KEY"] = groq_api_key
+
     st.markdown(f"""
     <div class="model-badge">
         <div class="badge-label">Primary Model</div>
@@ -1094,10 +1100,15 @@ elif page == "Predict":
             with c5: cb_default = st.selectbox("Prior Default on File", ["N", "Y"])
             with c6: cred_hist  = st.slider("Credit History Length (yrs)", 2, 30, 5)
 
-            submitted = st.form_submit_button("Run Prediction", use_container_width=True)
+            st.markdown('<div class="form-section-label">Execution Mode</div>', unsafe_allow_html=True)
+            c_btn1, c_btn2 = st.columns(2)
+            with c_btn1:
+                submitted_ml = st.form_submit_button("Lightning Prediction (ML)", type="primary", use_container_width=True)
+            with c_btn2:
+                submitted_agent = st.form_submit_button("Deep AI Analysis (Agent)", use_container_width=True)
 
     with result_col:
-        if not submitted:
+        if not (submitted_ml or submitted_agent):
             st.markdown("""
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
                         height:500px;gap:1.2rem;border:1px solid #000000;border-radius:4px;background:#FFFFFF;">
@@ -1106,55 +1117,95 @@ elif page == "Predict":
                     Awaiting Input
                 </div>
                 <div style="color:#222222;font-size:0.92rem;text-align:center;font-style:italic;line-height:1.8;">
-                    Complete the applicant form<br>and submit to generate a prediction.
+                    Complete the applicant form<br>and submit to generate a prediction or an agent analysis.
                 </div>
             </div>
             """, unsafe_allow_html=True)
-        else:
+        elif submitted_agent:
+            if not os.environ.get("GROQ_API_KEY"):
+                st.error("Please enter a Groq API Key in the sidebar or set the GROQ_API_KEY environment variable to use the Agent.")
+            else:
+                with st.spinner("Agent Planner is formulating strategy..."):
+                    applicant_features = {
+                        "age": person_age,
+                        "income": person_income,
+                        "employment_years": person_emp_length,
+                        "home_ownership": person_home_ownership,
+                        "loan_intent": loan_intent,
+                        "loan_amount": loan_amnt,
+                        "interest_rate": loan_int_rate,
+                        "default_on_file": cb_default,
+                        "credit_history": cred_hist
+                    }
+                    try:
+                        state = agent_pipeline.run_per_agent(applicant_features, verbose=False)
+                        st.subheader("Agent Analysis Results")
+
+                        if state.get("final_decision"):
+                            if state["final_decision"] == "APPROVE":
+                                st.success("FINAL VERDICT: APPROVE")
+                            else:
+                                st.error("FINAL VERDICT: REJECT")
+
+                        with st.expander("1. Step-By-Step Plan", expanded=True):
+                            plan_items = state.get("plan", [])
+                            if plan_items:
+                                for idx, p in enumerate(plan_items, 1):
+                                    st.markdown(f"**Step {idx}:** {p.get('tool_name')} - {p.get('reason_for_tool')}")
+                            else:
+                                st.write("No plan generated.")
+                        
+                        with st.expander("2. Tool Executions & Risk Flags"):
+                            logs = state.get("execution_log", [])
+                            for log in logs:
+                                st.markdown(f"**Executed Tool:** `{log.get('tool')}`")
+                                st.json(log.get('result', {}))
+                        
+                        with st.expander("3. Reflector Audit"):
+                            reflection = state.get("reflection", {})
+                            st.json(reflection)
+                            
+                        st.markdown("### Final Narrative Report")
+                        st.markdown(state.get("final_report", "No report available."))
+                        
+                    except Exception as e:
+                        st.error(f"Agent Execution Failed: {e}")
+
+        elif submitted_ml:
             with st.spinner("Analyzing risk profile..."):
+                # 1. Select model and threshold
                 active_model     = model        if selected_model_name == "Decision Tree" else lr_model
                 active_threshold = dt_threshold if selected_model_name == "Decision Tree" else lr_threshold
 
-                loan_percent_income = round(loan_amnt / person_income, 4) if person_income > 0 else 0.0
+                # 2. Compute loan_percent_income
+                loan_percent_income = round(loan_amnt / max(person_income, 1), 4)
 
-                risk_score = (loan_int_rate * 2) + (loan_percent_income * 100) - cred_hist
-                if risk_score <= 25:   derived_grade = "A"
-                elif risk_score <= 35: derived_grade = "B"
-                elif risk_score <= 45: derived_grade = "C"
-                elif risk_score <= 55: derived_grade = "D"
-                elif risk_score <= 65: derived_grade = "E"
-                elif risk_score <= 75: derived_grade = "F"
-                else:                  derived_grade = "G"
-
-                grade_map = {"A":0,"B":1,"C":2,"D":3,"E":4,"F":5,"G":6}
-                raw = {
-                    "person_age":               person_age,
-                    "person_income($)":          person_income,
-                    "person_home_ownership":     person_home_ownership,
-                    "person_emp_length":         person_emp_length,
-                    "loan_intent":               loan_intent,
-                    "loan_grade":                grade_map[derived_grade],
-                    "loan_amnt($)":              loan_amnt,
-                    "loan_int_rate":             loan_int_rate,
-                    "loan_percent_income":       loan_percent_income,
-                    "cb_person_default_on_file": cb_default,
-                    "cb_person_cred_hist_length":cred_hist,
-                    "person_income":             person_income,
-                    "loan_amnt":                 loan_amnt,
+                # 3. Build feature row using trailing UI form variables
+                row = {
+                    "person_age":                  person_age,
+                    "person_income($)":             person_income,
+                    "person_home_ownership":        person_home_ownership,
+                    "person_emp_length":            float(person_emp_length),
+                    "loan_intent":                  loan_intent,
+                    "loan_amnt($)":                 loan_amnt,
+                    "loan_int_rate":                loan_int_rate,
+                    "loan_percent_income":          loan_percent_income,
+                    "cb_person_default_on_file":    cb_default,
+                    "cb_person_cred_hist_length":   cred_hist,
                 }
 
-                enc = raw.copy()
-                for col in feature_cols:
-                    if col in encoders:
-                        le  = encoders[col]
-                        val = enc.get(col)
-                        enc[col] = int(le.transform([val])[0]) if val in le.classes_ else 0
+                # 4. Fallback missing categorical columns manually for pd.get_dummies if needed (matches notebook setup)
+                cat_cols = ["person_home_ownership", "loan_intent", "cb_person_default_on_file"]
+                df_input = pd.DataFrame([row])
+                df_enc   = pd.get_dummies(df_input, columns=cat_cols, drop_first=True)
+
+                # 5. Align to training feature columns (fill 0 for missing features)
+                df_aligned = df_enc.reindex(columns=feature_cols, fill_value=0)
 
                 try:
-                    X    = pd.DataFrame([[enc.get(c, 0) for c in feature_cols]], columns=feature_cols)
-                    X_sc = scaler.transform(X)
-
-                    proba        = active_model.predict_proba(X_sc)[0]
+                    # 6. Scale and Predict
+                    X_scaled = scaler.transform(df_aligned.values)
+                    proba        = active_model.predict_proba(X_scaled)[0]
                     default_prob = float(proba[1])
                     pred         = 1 if default_prob >= active_threshold else 0
                     conf         = max(default_prob, 1 - default_prob) * 100
@@ -1207,10 +1258,6 @@ elif page == "Predict":
                         <div class="summary-row">
                             <span class="sr-label">Decision Threshold</span>
                             <span class="sr-value">{active_threshold}</span>
-                        </div>
-                        <div class="summary-row">
-                            <span class="sr-label">Estimated Loan Grade</span>
-                            <span class="sr-value">Grade {derived_grade}</span>
                         </div>
                         <div class="summary-row">
                             <span class="sr-label">Loan % of Income</span>
